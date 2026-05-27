@@ -1,11 +1,11 @@
 # Phân tích yêu cầu — vai Provider
 
-- Cặp đàm phán:
-- Product: A / B
-- Provider service:
-- Consumer service:
-- Người viết:
-- Ngày:
+- Cặp đàm phán: Pair 03
+- Product: A
+- Provider service: Access Gate
+- Consumer service: Core Business
+- Người viết: Lương Duy Chiến
+- Ngày: 20-05-2026
 
 ---
 
@@ -13,8 +13,8 @@
 
 | Resource | Mô tả | Thuộc tính bắt buộc | Thuộc tính tùy chọn |
 |---|---|---|---|
-| `<Resource 1>` |  |  |  |
-| `<Resource 2>` |  |  |  |
+| `DetectionTask` | Nhiệm vụ phân tích ảnh | `detectionId`, `cameraId`, `imageRef`, `status` | `errorMessage` |
+| `ModelInfo` | Thông tin model AI hiện tại | `version`, `supportedTypes` | `accuracy` |
 
 ---
 
@@ -22,41 +22,37 @@
 
 | Method | Path | Mục đích | Consumer gọi khi nào? |
 |---|---|---|---|
-| POST | `/...` |  |  |
-| GET | `/.../{id}` |  |  |
+| GET | `/health` | Kiểm tra service AI Vision còn sống không. | Hệ thống monitor gọi, hoặc Consumer gọi khi khởi tạo. |
+| POST | `/vision/detect` | Tạo task phân tích AI mới. | Khi có motion event từ Camera. |
+| GET | `/vision/detections/{detectionId}` | Trả về kết quả phân tích. | Consumer polling để lấy kết quả (do POST trả về 202). |
+| GET | `/vision/models/info` | Trả về thông tin AI models. | Khi Consumer cần cấu hình. |
 
 ---
 
 ## 3. Error case
 
-Tối thiểu 5 case.
-
 | Status | Tình huống | Response body dự kiến |
 |---:|---|---|
-| 400 | Payload sai định dạng | `Problem` |
-| 401 | Thiếu Bearer token | `Problem` |
-| 403 | Token hợp lệ nhưng không có quyền | `Problem` |
-| 404 | Resource không tồn tại | `Problem` |
-| 409 | Xung đột nghiệp vụ | `Problem` |
-| 422 | Dữ liệu đúng JSON nhưng vi phạm nghiệp vụ | `Problem` |
+| 400 | Payload sai định dạng (URL lỗi) | `Problem` schema |
+| 401 | Thiếu Bearer token | `Problem` schema |
+| 403 | Token hợp lệ nhưng không có role vision | `Problem` schema |
+| 404 | `detectionId` không tồn tại | `Problem` schema |
+| 422 | Không tải được ảnh từ `imageRef` do file hỏng | `Problem` schema |
+| 429 | Vượt quá Rate Limit (Quá nhiều request/giây) | `Problem` schema |
 
 ---
 
 ## 4. Giả định bổ sung
 
-Ghi rõ những điểm user story chưa nói nhưng Provider cần giả định.
-
-- Giả định 1:
-- Giả định 2:
-- Giả định 3:
+- Giả định 1: AI Vision hỗ trợ nhiều loại phân tích (Ví dụ: `FaceDetection` và `ObjectDetection`). Kết quả trả về sẽ là cấu trúc đa hình (Polymorphism).
+- Giả định 2: AI Vision chỉ lưu kết quả detection trong RAM/Redis khoảng 5 phút. Consumer phải lấy sớm.
 
 ---
 
 ## 5. Câu hỏi cho Consumer
 
-1. 
-2. 
-3. 
+1. Consumer polling với tần suất bao nhiêu? (Tránh làm sập Provider).
+2. Consumer có cần gửi `minConfidence` tùy biến cho mỗi bức ảnh không, hay dùng mặc định của Provider?
 
 ---
 
@@ -64,5 +60,5 @@ Ghi rõ những điểm user story chưa nói nhưng Provider cần giả địn
 
 | Rủi ro | Tác động | Đề xuất xử lý |
 |---|---|---|
-| Tên field không thống nhất | Consumer parse lỗi | Chốt naming trong `openapi.yaml` |
-| Payload lớn | Timeout/mock lỗi | Thống nhất content-type và size limit |
+| URL ảnh Consumer gửi không thể truy cập từ mạng của AI Vision | 422 liên tục | Kiểm tra lại cấu trúc DNS và Firewall (Service Mesh). |
+| Consumer gửi quá nhiều ảnh trùng lặp trong 1 giây | Cạn kiệt tài nguyên GPU | Provider triển khai Rate Limit nghiêm ngặt và IDEMPOTENCY KEY. |
