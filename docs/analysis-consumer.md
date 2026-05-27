@@ -1,9 +1,9 @@
 # Phân tích yêu cầu — vai Consumer
 
 - Cặp đàm phán: Pair 03
-- Product: Smart Campus Operations Platform
-- Consumer service: Camera Stream (A2/B2)
-- Provider service: AI Vision (A4/B4)
+- Product: A
+- Consumer service: Core Business
+- Provider service: Access Gate
 - Người viết: Lương Duy Chiến
 - Ngày: 20-05-2026
 
