@@ -5,7 +5,7 @@
 - Provider service: Access Gate
 - Consumer service: Core Business
 - Người viết: Lương Duy Chiến
-- Ngày: 20-05-2026
+- Ngày: 27-05-2026
 
 ---
 
@@ -13,8 +13,9 @@
 
 | Resource | Mô tả | Thuộc tính bắt buộc | Thuộc tính tùy chọn |
 |---|---|---|---|
-| `DetectionTask` | Nhiệm vụ phân tích ảnh | `detectionId`, `cameraId`, `imageRef`, `status` | `errorMessage` |
-| `ModelInfo` | Thông tin model AI hiện tại | `version`, `supportedTypes` | `accuracy` |
+| `AccessLog` | Lịch sử quẹt thẻ ra/vào cổng | `logId`, `gateId`, `cardId`, `direction`, `timestamp`, `status` | `operatorNote` |
+| `Gate` | Thông tin cổng kiểm soát | `gateId`, `status`, `location` | `lastMaintenance` |
+| `Card` | Thẻ định danh | `cardId`, `isActive`, `ownerId` | `expiredAt` |
 
 ---
 
@@ -22,10 +23,11 @@
 
 | Method | Path | Mục đích | Consumer gọi khi nào? |
 |---|---|---|---|
-| GET | `/health` | Kiểm tra service AI Vision còn sống không. | Hệ thống monitor gọi, hoặc Consumer gọi khi khởi tạo. |
-| POST | `/vision/detect` | Tạo task phân tích AI mới. | Khi có motion event từ Camera. |
-| GET | `/vision/detections/{detectionId}` | Trả về kết quả phân tích. | Consumer polling để lấy kết quả (do POST trả về 202). |
-| GET | `/vision/models/info` | Trả về thông tin AI models. | Khi Consumer cần cấu hình. |
+| GET | `/health` | Kiểm tra service Access Gate | Monitor hệ thống gọi định kỳ. |
+| GET | `/access/logs/recent` | Lấy danh sách log gần nhất | Core Business cần đối soát sự kiện ra/vào. |
+| GET | `/access/logs/{logId}` | Lấy chi tiết 1 log cụ thể | Khi Core Business cần audit một sự kiện đáng ngờ. |
+| GET | `/gates/{gateId}/status` | Kiểm tra cổng đang đóng hay mở | Khi có cảnh báo an ninh cần khóa cổng. |
+| GET | `/cards/{cardId}` | Lấy thông tin thẻ | Khi cần xác minh thẻ hợp lệ không. |
 
 ---
 
@@ -33,26 +35,25 @@
 
 | Status | Tình huống | Response body dự kiến |
 |---:|---|---|
-| 400 | Payload sai định dạng (URL lỗi) | `Problem` schema |
-| 401 | Thiếu Bearer token | `Problem` schema |
-| 403 | Token hợp lệ nhưng không có role vision | `Problem` schema |
-| 404 | `detectionId` không tồn tại | `Problem` schema |
-| 422 | Không tải được ảnh từ `imageRef` do file hỏng | `Problem` schema |
-| 429 | Vượt quá Rate Limit (Quá nhiều request/giây) | `Problem` schema |
+| 400 | Query parameters sai định dạng | `Problem` schema |
+| 401 | Core Business không truyền Bearer token | `Problem` schema |
+| 403 | Token hợp lệ nhưng không có quyền read:access | `Problem` schema |
+| 404 | `logId`, `gateId`, hoặc `cardId` không tồn tại | `Problem` schema |
+| 500 | Lỗi kết nối database nội bộ của Access Gate | `Problem` schema |
 
 ---
 
 ## 4. Giả định bổ sung
 
-- Giả định 1: AI Vision hỗ trợ nhiều loại phân tích (Ví dụ: `FaceDetection` và `ObjectDetection`). Kết quả trả về sẽ là cấu trúc đa hình (Polymorphism).
-- Giả định 2: AI Vision chỉ lưu kết quả detection trong RAM/Redis khoảng 5 phút. Consumer phải lấy sớm.
+- Giả định 1: `AccessLog` có thể là quẹt thẻ bình thường (`CardSwipeEvent`) hoặc mở cổng thủ công từ bảo vệ (`ManualOverrideEvent`). Cần dùng tính năng đa hình (Polymorphism) để biểu diễn.
+- Giả định 2: Dữ liệu log rất lớn, bắt buộc phải có phân trang (pagination) cho API danh sách.
 
 ---
 
 ## 5. Câu hỏi cho Consumer
 
-1. Consumer polling với tần suất bao nhiêu? (Tránh làm sập Provider).
-2. Consumer có cần gửi `minConfidence` tùy biến cho mỗi bức ảnh không, hay dùng mặc định của Provider?
+1. Core Business cần lấy tối đa bao nhiêu log trong một request (limit)?
+2. Chiều ra/vào (`direction`) Core Business muốn lưu dạng `IN/OUT` hay `ENTER/EXIT`?
 
 ---
 
@@ -60,5 +61,4 @@
 
 | Rủi ro | Tác động | Đề xuất xử lý |
 |---|---|---|
-| URL ảnh Consumer gửi không thể truy cập từ mạng của AI Vision | 422 liên tục | Kiểm tra lại cấu trúc DNS và Firewall (Service Mesh). |
-| Consumer gửi quá nhiều ảnh trùng lặp trong 1 giây | Cạn kiệt tài nguyên GPU | Provider triển khai Rate Limit nghiêm ngặt và IDEMPOTENCY KEY. |
+| Bị tấn công DDoS bằng cách gọi `/access/logs/recent` liên tục | Quá tải Database | Áp dụng Rate Limit và bắt buộc dùng Pagination (Cursor-based). |

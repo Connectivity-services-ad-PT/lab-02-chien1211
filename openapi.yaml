@@ -1,39 +1,33 @@
 openapi: 3.1.0
 info:
-  title: Smart Campus — AI Vision API (Pair 01)
+  title: Smart Campus — Access Gate API (Pair 03)
   version: 1.0.0
-  description: |
-    Hợp đồng API REST Sync giữa Camera Stream (Consumer) và AI Vision (Provider).
-    Hỗ trợ gửi hình ảnh qua URL để AI phân tích nhận diện khuôn mặt và vật thể,
-    theo cơ chế Asynchronous REST (Trình báo POST lấy ID -> Polling GET lấy kết quả).
-  contact:
-    name: Nhóm AI Vision & Camera Stream
-    email: fit4110-pair01@example.edu.vn
+  description: Hợp đồng API REST Sync giữa Core Business (Consumer) và Access Gate (Provider).
 servers:
   - url: http://localhost:4010
-    description: Prism mock server
-  - url: https://api.vision.campus.local
-    description: Production Server
+    description: Prism Mock Server
 tags:
   - name: health
     description: Kiểm tra trạng thái service
-  - name: vision
-    description: Phân tích hình ảnh
-  - name: models
-    description: Quản lý thông tin AI Models
+  - name: access-logs
+    description: Quản lý lịch sử ra vào
+  - name: gates
+    description: Quản lý cổng kiểm soát
+  - name: cards
+    description: Quản lý thẻ định danh
 security:
   - bearerAuth: []
 paths:
   /health:
     get:
       operationId: getHealth
-      summary: Kiểm tra trạng thái service
-      description: Endpoint kiểm tra service còn hoạt động.
+      summary: Kiểm tra trạng thái Access Gate
+      description: Endpoint để theo dõi healthcheck.
       tags: [health]
       security: []
       responses:
         '200':
-          description: Service đang hoạt động
+          description: Service hoạt động bình thường
           content:
             application/json:
               schema:
@@ -42,137 +36,157 @@ paths:
                 ok:
                   value:
                     status: ok
-                    service: ai-vision
-                    time: '2026-05-20T08:00:00Z'
+                    service: access-gate
+                    time: '2026-05-27T08:00:00Z'
 
-  /vision/models/info:
+  /access/logs/recent:
     get:
-      operationId: getModelInfo
-      summary: Lấy thông tin AI Models đang chạy
-      description: Endpoint cung cấp các model hiện có và khả năng phân tích.
-      tags: [models]
-      responses:
-        '200':
-          description: Thông tin thành công
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ModelInfo'
-              examples:
-                currentModels:
-                  value:
-                    version: "v2.4.1"
-                    supportedTypes:
-                      - FACE_RECOGNITION
-                      - OBJECT_DETECTION
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-
-  /vision/detect:
-    post:
-      operationId: requestDetection
-      summary: Yêu cầu phân tích hình ảnh (Async)
-      description: |
-        Camera Stream gửi request để AI phân tích. Trả về 202 kèm detectionId.
-      tags: [vision]
+      operationId: getRecentAccessLogs
+      summary: Lấy danh sách log ra/vào gần nhất
+      description: Lấy danh sách access log có phân trang. Hỗ trợ đa hình cho sự kiện quẹt thẻ hoặc mở thủ công.
+      tags: [access-logs]
       parameters:
-        - name: Idempotency-Key
-          in: header
+        - name: cursor
+          in: query
           required: false
-          description: Tránh gửi trùng request.
+          description: Con trỏ dùng để lấy trang tiếp theo.
           schema:
             type: string
-            format: uuid
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/DetectionRequest'
-            examples:
-              motionDetected:
-                value:
-                  cameraId: CAM-GATE-01
-                  imageRef: "https://minio.campus.local/frames/cam-01-12345.jpg"
-                  timestamp: "2026-05-20T08:01:00Z"
-                  minConfidence: 0.85
+        - name: limit
+          in: query
+          required: false
+          description: Số lượng bản ghi tối đa.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
       responses:
-        '202':
-          description: Request đã được chấp nhận đưa vào hàng đợi
-          headers:
-            Location:
-              description: URI để kiểm tra trạng thái của detection
-              schema:
-                type: string
-                format: uri
+        '200':
+          description: Danh sách access logs
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DetectionTaskStatus'
+                type: object
+                additionalProperties: false
+                required: [data, nextCursor]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AccessEvent'
+                  nextCursor:
+                    type: [string, "null"]
               examples:
-                accepted:
+                successList:
                   value:
-                    detectionId: 0196fb3d-4ad7-7d1e-9f49-5d5148d2babc
-                    status: PROCESSING
-                    createdAt: '2026-05-20T08:01:01Z'
+                    nextCursor: "eyJ0aW1lc3RhbXAiOiAiMjAyNi0wNS0yN1Q..."
+                    data:
+                      - eventType: CARD_SWIPE
+                        logId: "evt-123"
+                        gateId: "GATE-01"
+                        timestamp: "2026-05-27T08:15:00Z"
+                        status: GRANTED
+                        cardId: "CARD-999"
+                      - eventType: MANUAL_OVERRIDE
+                        logId: "evt-124"
+                        gateId: "GATE-02"
+                        timestamp: "2026-05-27T08:16:00Z"
+                        status: GRANTED
+                        operatorId: "GUARD-01"
+                        operatorNote: "Mở cổng cho xe cứu thương"
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '422':
-          $ref: '#/components/responses/UnprocessableEntity'
-        '429':
-          $ref: '#/components/responses/TooManyRequests'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
-  /vision/detections/{detectionId}:
+  /access/logs/{logId}:
     get:
-      operationId: getDetectionResult
-      summary: Lấy kết quả phân tích theo ID
-      description: Consumer gọi liên tục (polling) để xem ảnh đã phân tích xong chưa.
-      tags: [vision]
+      operationId: getAccessLogById
+      summary: Lấy chi tiết một access log
+      description: Lấy chi tiết log ra vào theo ID.
+      tags: [access-logs]
       parameters:
-        - name: detectionId
+        - name: logId
           in: path
           required: true
-          description: UUID của tác vụ phân tích.
           schema:
             type: string
-            format: uuid
       responses:
         '200':
-          description: Kết quả phân tích (có thể đang xử lý hoặc đã xong)
+          description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DetectionTaskResult'
-              examples:
-                completedFace:
-                  value:
-                    detectionId: 0196fb3d-4ad7-7d1e-9f49-5d5148d2babc
-                    status: COMPLETED
-                    resolvedAt: '2026-05-20T08:01:03Z'
-                    details:
-                      resultType: FACE_DETECTION
-                      faces:
-                        - boundingBox: [100, 150, 200, 250]
-                          confidence: 0.98
-                          recognizedPersonId: "USR-4110"
-                processing:
-                  value:
-                    detectionId: 0196fb3d-4ad7-7d1e-9f49-5d5148d2babd
-                    status: PROCESSING
-                    resolvedAt: null
-                    details: null
+                $ref: '#/components/schemas/AccessEvent'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
+
+  /gates/{gateId}/status:
+    get:
+      operationId: getGateStatus
+      summary: Lấy trạng thái hiện tại của cổng
+      description: Kiểm tra cổng đang mở, đóng hay bị khóa khẩn cấp.
+      tags: [gates]
+      parameters:
+        - name: gateId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[A-Z0-9-]+$'
+      responses:
+        '200':
+          description: Lấy trạng thái thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GateStatusInfo'
+              examples:
+                gateLocked:
+                  value:
+                    gateId: "GATE-01"
+                    status: "LOCKED_EMERGENCY"
+                    lastMaintenance: "2026-05-01T10:00:00Z"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /cards/{cardId}:
+    get:
+      operationId: getCardInfo
+      summary: Lấy thông tin thẻ
+      description: Trả về trạng thái hoạt động của thẻ.
+      tags: [cards]
+      parameters:
+        - name: cardId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Lấy dữ liệu thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CardInfo'
+              examples:
+                activeCard:
+                  value:
+                    cardId: "CARD-999"
+                    isActive: true
+                    ownerId: "USR-001"
+                    expiredAt: null
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
 components:
   securitySchemes:
@@ -190,141 +204,89 @@ components:
         status:
           type: string
           enum: [ok]
-          example: ok
         service:
           type: string
-          example: ai-vision
         time:
           type: string
           format: date-time
-          example: '2026-05-20T08:00:00Z'
 
-    ModelInfo:
+    AccessEvent:
+      oneOf:
+        - $ref: '#/components/schemas/CardSwipeEvent'
+        - $ref: '#/components/schemas/ManualOverrideEvent'
+      discriminator:
+        propertyName: eventType
+        mapping:
+          CARD_SWIPE: '#/components/schemas/CardSwipeEvent'
+          MANUAL_OVERRIDE: '#/components/schemas/ManualOverrideEvent'
+
+    BaseAccessEvent:
       type: object
       additionalProperties: false
-      required: [version, supportedTypes]
+      required: [logId, gateId, timestamp, status, eventType]
       properties:
-        version:
+        logId:
           type: string
-          example: "v2.4.1"
-        supportedTypes:
-          type: array
-          items:
-            type: string
-          example: ["FACE_RECOGNITION", "OBJECT_DETECTION"]
-
-    DetectionRequest:
-      type: object
-      additionalProperties: false
-      required: [cameraId, imageRef, timestamp]
-      properties:
-        cameraId:
+        gateId:
           type: string
-          pattern: '^[A-Z0-9-]+$'
-          description: Mã định danh camera
-          example: CAM-GATE-01
-        imageRef:
-          type: string
-          format: uri
-          description: Presigned URL trỏ tới file ảnh
-          example: "https://minio.campus.local/frames/cam-01.jpg"
         timestamp:
           type: string
           format: date-time
-          description: Thời điểm chụp
-        minConfidence:
-          type: number
-          minimum: 0
-          maximum: 1
-          default: 0.7
-          description: Ngưỡng tự tin tối thiểu (0.0 đến 1.0)
-
-    DetectionTaskStatus:
-      type: object
-      additionalProperties: false
-      required: [detectionId, status, createdAt]
-      properties:
-        detectionId:
-          type: string
-          format: uuid
         status:
           type: string
-          enum: [PROCESSING, COMPLETED, FAILED]
-          example: PROCESSING
-        createdAt:
+          enum: [GRANTED, DENIED]
+        eventType:
           type: string
-          format: date-time
 
-    DetectionTaskResult:
+    CardSwipeEvent:
+      allOf:
+        - $ref: '#/components/schemas/BaseAccessEvent'
+        - type: object
+          required: [cardId]
+          properties:
+            cardId:
+              type: string
+
+    ManualOverrideEvent:
+      allOf:
+        - $ref: '#/components/schemas/BaseAccessEvent'
+        - type: object
+          required: [operatorId]
+          properties:
+            operatorId:
+              type: string
+            operatorNote:
+              type: [string, "null"]
+              description: Ghi chú của bảo vệ, dùng union type với null
+
+    GateStatusInfo:
       type: object
       additionalProperties: false
-      required: [detectionId, status, resolvedAt, details]
+      required: [gateId, status]
       properties:
-        detectionId:
+        gateId:
           type: string
-          format: uuid
         status:
           type: string
-          enum: [PROCESSING, COMPLETED, FAILED]
-        resolvedAt:
+          enum: [OPEN, CLOSED, MAINTENANCE, LOCKED_EMERGENCY]
+        lastMaintenance:
           type: [string, "null"]
           format: date-time
-          description: Thời gian hoàn tất, dùng union type với null
-        details:
-          oneOf:
-            - $ref: '#/components/schemas/FaceDetectionResult'
-            - $ref: '#/components/schemas/ObjectDetectionResult'
-            - type: "null"
-          discriminator:
-            propertyName: resultType
-            mapping:
-              FACE_DETECTION: '#/components/schemas/FaceDetectionResult'
-              OBJECT_DETECTION: '#/components/schemas/ObjectDetectionResult'
 
-    FaceDetectionResult:
+    CardInfo:
       type: object
       additionalProperties: false
-      required: [resultType, faces]
+      required: [cardId, isActive, ownerId]
       properties:
-        resultType:
+        cardId:
           type: string
-          const: FACE_DETECTION
-        faces:
-          type: array
-          items:
-            type: object
-            required: [boundingBox, confidence]
-            properties:
-              boundingBox:
-                type: array
-                items:
-                  type: integer
-                minItems: 4
-                maxItems: 4
-              confidence:
-                type: number
-              recognizedPersonId:
-                type: [string, "null"]
-
-    ObjectDetectionResult:
-      type: object
-      additionalProperties: false
-      required: [resultType, objects]
-      properties:
-        resultType:
+        isActive:
+          type: boolean
+        ownerId:
           type: string
-          const: OBJECT_DETECTION
-        objects:
-          type: array
-          items:
-            type: object
-            required: [label, confidence]
-            properties:
-              label:
-                type: string
-                example: "unattended_baggage"
-              confidence:
-                type: number
+        expiredAt:
+          type: [string, "null"]
+          format: date-time
 
     Problem:
       type: object
@@ -334,33 +296,19 @@ components:
         type:
           type: string
           format: uri
-          description: URI định danh loại lỗi.
-          example: https://vision.campus.local/errors/validation
         title:
           type: string
-          minLength: 3
-          maxLength: 120
-          description: Tiêu đề lỗi ngắn gọn.
-          example: Dữ liệu không hợp lệ
         status:
           type: integer
           minimum: 400
           maximum: 599
-          description: HTTP status code.
-          example: 400
         detail:
           type: [string, 'null']
-          maxLength: 500
-          description: Mô tả chi tiết lỗi.
-          example: Field imageRef không đúng định dạng
         instance:
           type: [string, 'null']
           format: uri
-          description: URI của request gây lỗi.
         errors:
           type: array
-          minItems: 0
-          maxItems: 50
           items:
             type: object
             additionalProperties: false
@@ -368,16 +316,10 @@ components:
             properties:
               field:
                 type: string
-                minLength: 1
-                maxLength: 80
               code:
                 type: string
-                minLength: 2
-                maxLength: 80
               message:
                 type: string
-                minLength: 3
-                maxLength: 200
 
   responses:
     BadRequest:
@@ -386,42 +328,20 @@ components:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/Problem'
-
     Unauthorized:
       description: Thiếu hoặc sai thông tin xác thực
       content:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/Problem'
-
     NotFound:
-      description: Resource không tồn tại
+      description: Không tìm thấy tài nguyên
       content:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/Problem'
-
-    UnprocessableEntity:
-      description: Payload đúng JSON nhưng vi phạm nghiệp vụ (vd ảnh hỏng/mờ)
-      content:
-        application/problem+json:
-          schema:
-            $ref: '#/components/schemas/Problem'
-          example:
-            type: https://vision.campus.local/errors/unprocessable
-            title: Không thể xử lý hình ảnh
-            status: 422
-            detail: URL hình ảnh không tải được hoặc định dạng không hỗ trợ.
-
-    TooManyRequests:
-      description: Vượt quá giới hạn (Rate Limit)
-      content:
-        application/problem+json:
-          schema:
-            $ref: '#/components/schemas/Problem'
-
     InternalServerError:
-      description: Lỗi không mong muốn phía server
+      description: Lỗi hệ thống nội bộ
       content:
         application/problem+json:
           schema:
